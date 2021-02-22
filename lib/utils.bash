@@ -24,13 +24,11 @@ sort_versions() {
 
 list_github_tags() {
   git ls-remote --tags --refs "$GH_REPO" |
-    grep -o 'refs/tags/.*' | cut -d/ -f3- |
-    sed 's/^v//' # NOTE: You might want to adapt this sed to remove non-version strings from tags
+    grep -Eo 'refs/tags/v[0-9][0-9.]*(-rc[0-9]+)?' | cut -d/ -f3- |
+    sed 's/^v//'
 }
 
 list_all_versions() {
-  # TODO: Adapt this. By default we simply list the tag names from GitHub releases.
-  # Change this function if git has other means of determining installable versions.
   list_github_tags
 }
 
@@ -55,22 +53,31 @@ install_version() {
     fail "asdf-git supports release installs only"
   fi
 
-  # TODO: Adapt this to proper extension and adapt extracting strategy.
-  local release_file="$install_path/git-$version.tar.gz"
+  local tmp_dir
+  tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/asdf-git.XXXX")
   (
-    mkdir -p "$install_path"
+    cd "$tmp_dir"
+
+    local release_file="ditsfiles/git-$version.tar.gz"
+    mkdir -p "$(dirname "$release_file")"
     download_release "$version" "$release_file"
-    tar -xzf "$release_file" -C "$install_path" --strip-components=1 || fail "Could not extract $release_file"
+    tar -xzf "$release_file" --strip-components=1 || fail "Could not extract $release_file"
     rm "$release_file"
 
-    # TODO: Asert git executable exists.
-    local tool_cmd
-    tool_cmd="$(echo "git --version" | cut -d' ' -f1)"
-    test -x "$install_path/bin/$tool_cmd" || fail "Expected $install_path/bin/$tool_cmd to be executable."
+    build "$install_path"
+
+    local tool_cmd="$install_path/bin/git"
+    test -x "$tool_cmd" || fail "Expected $tool_cmd to be executable."
 
     echo "git $version installation was successful!"
   ) || (
-    rm -rf "$install_path"
     fail "An error ocurred while installing git $version."
   )
+  rm -rf "$tmp_dir"
+}
+
+build() {
+  local install_path=$1
+  make prefix="$install_path" all man
+  make prefix="$install_path" install install-man
 }
